@@ -1,0 +1,13 @@
+{
+  "name": "wifi-spyware",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "vercel dev"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "@vercel/node": "^3.2.12"
+  }
+}
